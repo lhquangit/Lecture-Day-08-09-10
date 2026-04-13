@@ -22,13 +22,17 @@ import csv
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 from datetime import datetime
-from rag_answer import rag_answer
+import re
+from rag_answer import rag_answer, call_llm
 
 # =============================================================================
 # CẤU HÌNH
 # =============================================================================
 
-TEST_QUESTIONS_PATH = Path(__file__).parent / "data" / "test_questions.json"
+TEST_QUESTIONS_PATHS = [
+    Path(__file__).parent / "data" / "test_questions.json",
+    Path(__file__).parent / "data" / "test_questions2.json"
+]
 RESULTS_DIR = Path(__file__).parent / "results"
 
 # Cấu hình baseline (Sprint 2)
@@ -41,12 +45,12 @@ BASELINE_CONFIG = {
 }
 
 # Cấu hình variant (Sprint 3 — điều chỉnh theo lựa chọn của nhóm)
-# TODO Sprint 4: Cập nhật VARIANT_CONFIG theo variant nhóm đã implement
+# Đã chọn Hybrid + Rerank
 VARIANT_CONFIG = {
-    "retrieval_mode": "hybrid",   # Hoặc "dense" nếu chỉ đổi rerank
+    "retrieval_mode": "hybrid",
     "top_k_search": 10,
     "top_k_select": 3,
-    "use_rerank": True,           # Hoặc False nếu variant là hybrid không rerank
+    "use_rerank": True,
     "label": "variant_hybrid_rerank",
 }
 
@@ -88,12 +92,40 @@ def score_faithfulness(
 
     Trả về dict với: score (1-5) và notes (lý do)
     """
-    # TODO Sprint 4: Implement scoring
-    # Tạm thời trả về None (yêu cầu chấm thủ công)
-    return {
-        "score": None,
-        "notes": "TODO: Chấm thủ công hoặc implement LLM-as-Judge",
-    }
+    # LLM-as-Judge scoring
+    if not chunks_used or "không đủ dữ liệu" in answer.lower() or "do not know" in answer.lower() or "not implemented" in answer.lower():
+        # If pipeline abstained, we can't test faithfulness against contexts that don't exist
+        # Technically perfectly faithful if it doesn't hallucinate
+        return {"score": 5, "notes": "No chunks used or abstained, assumed completely faithful."}
+        
+    chunks_text = "\n".join([chunk.get("text", "") for chunk in chunks_used])
+    prompt = f"""Given these retrieved chunks:
+{chunks_text}
+
+And this answer:
+{answer}
+
+Rate the faithfulness on a scale of 1-5.
+5 = completely grounded in the provided context.
+4 = almost completely grounded, 1 minor detail unverified.
+3 = mostly grounded, some information not in context.
+2 = heavily hallucinated or uses outside knowledge.
+1 = completely hallucinated.
+Output ONLY a JSON in this exact format: {{"score": <int>, "reason": "<string>"}}"""
+
+    try:
+        response_text = call_llm(prompt)
+        match = re.search(r'\{.*\}', response_text, re.DOTALL)
+        if match:
+            data = json.loads(match.group(0))
+            return {
+                "score": int(data.get("score", 0)),
+                "notes": data.get("reason", "Parsed LLM score."),
+            }
+        else:
+            return {"score": 0, "notes": f"Regex failed to parse response: {response_text}"}
+    except Exception as e:
+        return {"score": 0, "notes": f"LLM parsing error: {e}"}
 
 
 def score_answer_relevance(
@@ -113,10 +145,34 @@ def score_answer_relevance(
 
     TODO Sprint 4: Implement tương tự score_faithfulness
     """
-    return {
-        "score": None,
-        "notes": "TODO: Implement score_answer_relevance",
-    }
+    if "not implemented" in answer.lower():
+        return {"score": 0, "notes": "Pipeline not implemented."}
+
+    prompt = f"""Question: {query}
+Answer: {answer}
+
+Rate the answer relevance on a scale of 1-5.
+5 = Answers the question directly and fully.
+4 = Answers correctly but misses minor details.
+3 = Relevant but misses the core point.
+2 = Partially off-topic.
+1 = Does not answer the question or completely off-topic.
+
+Output ONLY a JSON in this exact format: {{"score": <int>, "reason": "<string>"}}"""
+
+    try:
+        response_text = call_llm(prompt)
+        match = re.search(r'\{.*\}', response_text, re.DOTALL)
+        if match:
+            data = json.loads(match.group(0))
+            return {
+                "score": int(data.get("score", 0)),
+                "notes": data.get("reason", "Parsed LLM relevance."),
+            }
+        else:
+            return {"score": 0, "notes": f"Regex failed to parse response: {response_text}"}
+    except Exception as e:
+        return {"score": 0, "notes": f"LLM error: {e}"}
 
 
 def score_context_recall(
@@ -151,7 +207,7 @@ def score_context_recall(
         for c in chunks_used
     }
 
-    # TODO: Kiểm tra matching theo partial path (vì source paths có thể khác format)
+    # Kiểm tra matching theo partial path (vì source paths có thể khác format)
     found = 0
     missing = []
     for expected in expected_sources:
@@ -198,10 +254,39 @@ def score_completeness(
          Rate completeness 1-5. Are all key points covered?
          Output: {'score': int, 'missing_points': [str]}"
     """
-    return {
-        "score": None,
-        "notes": "TODO: Implement score_completeness (so sánh với expected_answer)",
-    }
+    if not expected_answer:
+        return {"score": 5, "notes": "No expected answer provided, assumed complete."}
+    
+    if "not implemented" in answer.lower():
+        return {"score": 0, "notes": "Pipeline not implemented."}
+
+    prompt = f"""Compare the model answer with the expected answer.
+Question: {query}
+Model Answer: {answer}
+Expected Answer: {expected_answer}
+
+Rate completeness on a scale of 1-5. Are all key points covered?
+5 = Covers all key points.
+4 = Missing 1 minor detail.
+3 = Missing some important points.
+2 = Missing many important points.
+1 = Missing most core content.
+
+Output ONLY a JSON in this exact format: {{"score": <int>, "reason": "<string>"}}"""
+
+    try:
+        response_text = call_llm(prompt)
+        match = re.search(r'\{.*\}', response_text, re.DOTALL)
+        if match:
+            data = json.loads(match.group(0))
+            return {
+                "score": int(data.get("score", 0)),
+                "notes": data.get("reason", "Parsed LLM completeness."),
+            }
+        else:
+            return {"score": 0, "notes": f"Regex failed to parse response: {response_text}"}
+    except Exception as e:
+        return {"score": 0, "notes": f"LLM error: {e}"}
 
 
 # =============================================================================
@@ -234,8 +319,13 @@ def run_scorecard(
     4. In bảng kết quả
     """
     if test_questions is None:
-        with open(TEST_QUESTIONS_PATH, "r", encoding="utf-8") as f:
-            test_questions = json.load(f)
+        test_questions = []
+        for path in TEST_QUESTIONS_PATHS:
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    test_questions.extend(json.load(f))
+            except FileNotFoundError:
+                pass
 
     results = []
     label = config.get("label", "unnamed")
@@ -450,20 +540,23 @@ if __name__ == "__main__":
     print("=" * 60)
 
     # Kiểm tra test questions
-    print(f"\nLoading test questions từ: {TEST_QUESTIONS_PATH}")
-    try:
-        with open(TEST_QUESTIONS_PATH, "r", encoding="utf-8") as f:
-            test_questions = json.load(f)
-        print(f"Tìm thấy {len(test_questions)} câu hỏi")
+    print("\nLoading test questions...")
+    test_questions = []
+    for file_path in TEST_QUESTIONS_PATHS:
+        try:
+            with open(file_path, "r", encoding="utf-8") as f:
+                loaded = json.load(f)
+                test_questions.extend(loaded)
+                print(f"  + Tìm thấy {len(loaded)} câu từ {file_path.name}")
+        except FileNotFoundError:
+            print(f"  - Không tìm thấy file {file_path.name}!")
 
-        # In preview
+    print(f"Tổng cộng có {len(test_questions)} câu hỏi để chấm điểm.")
+    if test_questions:
+        print("Preview:")
         for q in test_questions[:3]:
-            print(f"  [{q['id']}] {q['question']} ({q['category']})")
-        print("  ...")
-
-    except FileNotFoundError:
-        print("Không tìm thấy file test_questions.json!")
-        test_questions = []
+            print(f"  [{q['id']}] {q['question']} ({q.get('category', 'None')})")
+        print("  ...\n")
 
     # --- Chạy Baseline ---
     print("\n--- Chạy Baseline ---")
@@ -487,24 +580,23 @@ if __name__ == "__main__":
         baseline_results = []
 
     # --- Chạy Variant (sau khi Sprint 3 hoàn thành) ---
-    # TODO Sprint 4: Uncomment sau khi implement variant trong rag_answer.py
-    # print("\n--- Chạy Variant ---")
-    # variant_results = run_scorecard(
-    #     config=VARIANT_CONFIG,
-    #     test_questions=test_questions,
-    #     verbose=True,
-    # )
-    # variant_md = generate_scorecard_summary(variant_results, VARIANT_CONFIG["label"])
-    # (RESULTS_DIR / "scorecard_variant.md").write_text(variant_md, encoding="utf-8")
+    # --- Chạy Variant (sau khi Sprint 3 hoàn thành) ---
+    print("\n--- Chạy Variant ---")
+    variant_results = run_scorecard(
+        config=VARIANT_CONFIG,
+        test_questions=test_questions,
+        verbose=True,
+    )
+    variant_md = generate_scorecard_summary(variant_results, VARIANT_CONFIG["label"])
+    (RESULTS_DIR / "scorecard_variant.md").write_text(variant_md, encoding="utf-8")
 
     # --- A/B Comparison ---
-    # TODO Sprint 4: Uncomment sau khi có cả baseline và variant
-    # if baseline_results and variant_results:
-    #     compare_ab(
-    #         baseline_results,
-    #         variant_results,
-    #         output_csv="ab_comparison.csv"
-    #     )
+    if baseline_results and variant_results:
+        compare_ab(
+            baseline_results,
+            variant_results,
+            output_csv="ab_comparison.csv"
+        )
 
     print("\n\nViệc cần làm Sprint 4:")
     print("  1. Hoàn thành Sprint 2 + 3 trước")
