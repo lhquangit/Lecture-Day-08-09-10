@@ -31,7 +31,8 @@ from rag_answer import rag_answer, call_llm
 
 TEST_QUESTIONS_PATHS = [
     Path(__file__).parent / "data" / "test_questions.json",
-    Path(__file__).parent / "data" / "test_questions2.json"
+    Path(__file__).parent / "data" / "test_questions2.json",
+    Path(__file__).parent / "data" / "grading_questions.json"
 ]
 RESULTS_DIR = Path(__file__).parent / "results"
 
@@ -329,6 +330,16 @@ def run_scorecard(
 
     results = []
     label = config.get("label", "unnamed")
+    
+    RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+    cache_path = RESULTS_DIR / f"cache_{label}.json"
+    cache = {}
+    if cache_path.exists():
+        try:
+            with open(cache_path, "r", encoding="utf-8") as f:
+                cache = json.load(f)
+        except Exception:
+            pass
 
     print(f"\n{'='*70}")
     print(f"Chạy scorecard: {label}")
@@ -344,6 +355,13 @@ def run_scorecard(
 
         if verbose:
             print(f"\n[{question_id}] {query}")
+            
+        # Kiểm tra xem câu này đã chạy với cấu hình hiện tại chưa
+        if question_id in cache:
+            if verbose:
+                print(f"  -> Lấy kết quả từ cache (Bỏ qua chạy lại)")
+            results.append(cache[question_id])
+            continue
 
         # --- Gọi pipeline ---
         try:
@@ -388,6 +406,11 @@ def run_scorecard(
             "config_label": label,
         }
         results.append(row)
+        
+        # Lưu cache ngay sau mỗi câu để không mất kết quả nếu bị crash giữa chừng
+        cache[question_id] = row
+        with open(cache_path, "w", encoding="utf-8") as f:
+            json.dump(cache, f, ensure_ascii=False, indent=2)
 
         if verbose:
             print(f"  Answer: {answer[:100]}...")
