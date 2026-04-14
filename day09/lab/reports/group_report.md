@@ -1,6 +1,6 @@
 # Báo Cáo Nhóm — Lab Day 09: Multi-Agent Orchestration
 
-**Tên nhóm:** ___________  
+**Tên nhóm:** Day09_C401_A5  
 **Thành viên:**
 
 
@@ -109,13 +109,14 @@ Metric thay đổi rõ nhất không phải accuracy mà là **routing visibilit
 
 **Phân công thực tế:**
 
-| Tên | Vai trò | Phần đã làm | Sprint |
-|-----|---------|-------------|--------|
-| Lê Hồng Quân | Tech Lead, Supervisor Owner, Documentation Owner | `graph.py`, routing logic, state management; review kiến trúc + tổng hợp báo cáo | 1, 4 |
-| Đoàn Sĩ Linh | Worker Owner | `workers/policy_tool.py`, `workers/synthesis.py`, `contracts/worker_contracts.yaml` | 2 |
-| Phạm Thanh Lam | Retrieval Owner | `workers/retrieval.py` (dense/hybrid + rerank, logging retrieval metadata) | 2 |
-| Dương Trung Hiếu | MCP Owner | `mcp_server.py`, integration MCP tools trong policy path | 3 |
-| Nguyễn Đức Hải | Trace Owner | `eval_trace.py`, tổng hợp artifacts/trace phục vụ docs và grading | 4 |
+
+| Tên              | Vai trò                                          | Phần đã làm                                                                         | Sprint |
+| ---------------- | ------------------------------------------------ | ----------------------------------------------------------------------------------- | ------ |
+| Lê Hồng Quân     | Tech Lead, Supervisor Owner, Documentation Owner | `graph.py`, routing logic, state management; review kiến trúc + tổng hợp báo cáo    | 1, 4   |
+| Đoàn Sĩ Linh     | Worker Owner                                     | `workers/policy_tool.py`, `workers/synthesis.py`, `contracts/worker_contracts.yaml` | 2      |
+| Phạm Thanh Lam   | Retrieval Owner                                  | `workers/retrieval.py` (dense/hybrid + rerank, logging retrieval metadata)          | 2      |
+| Dương Trung Hiếu | MCP Owner                                        | `mcp_server.py`, integration MCP tools trong policy path                            | 3      |
+| Nguyễn Đức Hải   | Trace Owner                                      | `eval_trace.py`, tổng hợp artifacts/trace phục vụ docs và grading                   | 4      |
 
 
 **Điều nhóm làm tốt:**
@@ -143,3 +144,4 @@ Nếu có thêm 1 ngày, nhóm sẽ ưu tiên 3 cải tiến kỹ thuật để 
 Sau 3 thay đổi trên, nhóm sẽ chạy regression mini (`gq01`, `gq03`, `gq09`) trước khi re-run full `grading_questions.json` để xác nhận cải thiện thực sự.
 
 ---
+
